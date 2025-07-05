@@ -1,0 +1,37 @@
+[project]
+name = "super_mario"
+version = "0.1.0"
+authors = [{ name = "Alexei Quick" }]
+description = "Super Mario RL"
+readme = "README.md"
+requires-python = "==3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[tool.yapf]
+based_on_style = "google"
+column_limit = 120
+indent_width = 4
+dedent_closing_brackets = true
+INDENT_DICTIONARY_VALUE = true
+split_before_logical_operator = true
+spaces_before_comment = 2
+split_complex_comprehension = true
+split_arguments_when_comma_terminated = true
+split_all_comma_separated_values = false
+SPLIT_ALL_TOP_LEVEL_COMMA_SEPARATED_VALUES = false
+SPLIT_BEFORE_ARITHMETIC_OPERATOR = true
+SPLIT_BEFORE_DOT = true
+
+[tool.isort]
+line_length = 120
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 2
+use_parentheses = true
+ensure_newline_before_comments = true
+lines_after_imports = 2
+skip_gitignore = true
+known_first_party = []

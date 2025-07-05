@@ -1,0 +1,87 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyTorch checkpoints and logs
+# *.pt
+*.pth
+*.ckpt
+*.log
+checkpoints/
+runs/
+
+# TensorBoard logs
+tb_logs/
+logs/
+events.out.tfevents.*
+
+# MyPy and Pyre type checker
+.mypy_cache/
+.pyre/
+
+# PyCharm
+.idea/
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Linux
+*~
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Test and coverage
+.coverage
+htmlcov/
+.tox/
+.nox/
+.cache/
+pytest_cache/
+.pytest_cache/
+.coverage.*
+
+# Sphinx docs
+docs/_build/
+
+# dotenv
+.env
+.env.*
+
+# Model artifacts
+model/
+models/
+artifacts/
+
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+.vscode/
+
+requirements.txt
