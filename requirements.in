@@ -1,9 +1,21 @@
 # --find-links https://download.pytorch.org/whl/torch_stable.html
 # torch==2.3.1+cu121
+
+# Main mario deps
 gym-super-mario-bros==7.4.0
 numpy==1.26.4
 nes-py==8.2.1
-gym==0.26.2
+gym==0.25.2
 opencv-python
+
+# Other 
+python-dotenv
+
+# Logs and observability
 tensorboard
 loguru
+
+# Cloud
+gcsfs
+fsspec
+google-cloud-storage

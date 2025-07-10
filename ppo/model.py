@@ -44,24 +44,29 @@ class MarioPolicy(nn.Module):
          │                         │
     ┌────▼─────┐            ┌──────▼──┐
     │  Actor   │            │ Critic  │
-    │ (N, 12)  │            │ (N, 1)  │
+    │ (N, X)   │            │ (N, 1)  │
     │ [Logits] │            │ [Value] │
     └──────────┘            └─────────┘
     """
 
     def __init__(self, config: ModelConfig):
-        super(MarioPolicy, self).__init__()
+        super().__init__()
         self.config = config
 
-        # CNN feature extractor
+        # CNN feature extractor with batch normalization for better GPU utilization
         self.conv1 = nn.Conv2d(config.num_states, config.conv_channels[0], 3, stride=2, padding=1)
+        self.bn1 = nn.BatchNorm2d(config.conv_channels[0])
         self.conv2 = nn.Conv2d(config.conv_channels[0], config.conv_channels[1], 3, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(config.conv_channels[1])
         self.conv3 = nn.Conv2d(config.conv_channels[1], config.conv_channels[2], 3, stride=2, padding=1)
+        self.bn3 = nn.BatchNorm2d(config.conv_channels[2])
         self.conv4 = nn.Conv2d(config.conv_channels[2], config.conv_channels[3], 3, stride=2, padding=1)
+        self.bn4 = nn.BatchNorm2d(config.conv_channels[3])
 
         # Calculate flattened size (assumes 84x84 input)
         conv_out_size = config.conv_channels[3] * 6 * 6
         self.linear = nn.Linear(conv_out_size, config.hidden_size)
+        self.dropout = nn.Dropout(0.2)  # Add dropout for regularization
 
         # Actor-critic heads
         self.critic_head = nn.Linear(config.hidden_size, 1)
@@ -80,14 +85,14 @@ class MarioPolicy(nn.Module):
     def forward(self, x):
         """Forward pass returning action logits and value."""
 
-        # CNN feature extraction
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = F.relu(self.conv4(x))
+        # CNN feature extraction with batch normalization
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = F.relu(self.bn4(self.conv4(x)))
 
-        # Flatten and pass through MLP
-        x = self.linear(x.view(x.size(0), -1))
+        # Flatten and pass through MLP with dropout
+        x = self.dropout(F.relu(self.linear(x.view(x.size(0), -1))))
 
         logits = self.actor_head(x)
         value = self.critic_head(x)

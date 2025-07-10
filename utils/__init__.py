@@ -1,35 +1,61 @@
+from typing import (
+    IO,
+    Any,
+    TypeVar,
+    cast,
+)
+
+import fsspec
 import torch
+import torch.nn as nn
+from fsspec.spec import AbstractFileSystem
 from torch.nn import Module
-from torch.nn.parallel import DistributedDataParallel
-from typing import Optional, Dict, Any
+from torch.optim import Optimizer
+
+CLOUD_PREFIXES = ('s3://', 'gs://')
+
+T = TypeVar('T', bound=nn.Module)
 
 
-def unwrap_dpp(model: Module) -> Module:
+def get_device() -> torch.device:
     """
-    Unwrap a model from DistributedDataParallel (DDP) if wrapped.
-
-    Parameters
-    ----------
-    model : torch.nn.Module
-        The model instance, possibly wrapped in DistributedDataParallel.
+    Return the appropriate torch device ('cuda' if available, else 'cpu').
 
     Returns
     -------
-    torch.nn.Module
-        The unwrapped model if it was wrapped in DDP; otherwise the original model.
+    device : torch.device
+        The best available device for computation.
     """
-    if isinstance(model, DistributedDataParallel):
-        return model.module
-    return model
+    return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+def get_fs_and_path(path: str) -> tuple[AbstractFileSystem, str]:
+    """
+    Return the appropriate filesystem handler and cleaned path.
+
+    Parameters
+    ----------
+    path : str
+        The file path or URI to check.
+
+    Returns
+    -------
+    tuple[AbstractFileSystem, str]
+        A tuple containing the filesystem object and the cleaned path.
+    """
+    if path.startswith(CLOUD_PREFIXES):
+        protocol, stripped_path = path.split("://", 1)
+        return fsspec.filesystem(protocol), stripped_path
+    return fsspec.filesystem("file"), path
 
 
 def save_model_checkpoint(
     filepath: str,
     model: Module,
-    optimizer: torch.optim.Optimizer,
+    optimizer: Optimizer,
     training_config,
     model_config,
-    metadata: Optional[Dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
 ):
     """Save model checkpoint with training and model configurations.
     
@@ -48,15 +74,17 @@ def save_model_checkpoint(
         'model_config': model_config,
         'metadata': metadata or {}
     }
-    
-    torch.save(checkpoint, filepath)
+
+    fs, path = get_fs_and_path(filepath)
+    with cast(IO[bytes], fs.open(path, 'wb')) as f:
+        torch.save(checkpoint, f)
+    return
 
 
 def load_model_checkpoint(
     filepath: str,
     model: Module,
-    optimizer: torch.optim.Optimizer,
-    device=None,
+    optimizer: Optimizer,
 ) -> tuple:
     """Load model checkpoint with training and model configurations.
     
@@ -64,24 +92,20 @@ def load_model_checkpoint(
         filepath: Path to checkpoint file.
         model: The model to load state into.
         optimizer: The optimizer to load state into.
-        device: Device to map the checkpoint to (optional).
         
     Returns:
         Tuple of (training_config, model_config, metadata) from checkpoint.
         metadata will be an empty dict if not present in checkpoint.
     """
-    checkpoint = torch.load(filepath, map_location=device, weights_only=False)
-    
-    # Handle both old format (policy_state_dict) and new format (model_state_dict)
-    if 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
-    elif 'policy_state_dict' in checkpoint:
-        # Backwards compatibility with old format
-        model.load_state_dict(checkpoint['policy_state_dict'])
-    else:
-        raise KeyError("Checkpoint does not contain 'model_state_dict' or 'policy_state_dict'")
-    
+    fs, path = get_fs_and_path(filepath)
+    with cast(IO[bytes], fs.open(path, 'rb')) as f:
+        checkpoint = torch.load(f, map_location=get_device(), weights_only=False)
+
+    model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    
     metadata = checkpoint.get('metadata', {})
     return checkpoint['training_config'], checkpoint['model_config'], metadata
+
+
+def is_remote_fs(path: str) -> bool:
+    return path.startswith(CLOUD_PREFIXES)

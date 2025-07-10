@@ -6,5 +6,5 @@ python -m venv .venv
 . .venv/bin/activate
 pip install pip-tools
 pip-compile
-pip install torch==2.7.0.dev20250310+cu128 --extra-index-url https://download.pytorch.org/whl/nightly/cu128
+pip install torch==2.8.0.dev20250603+cu128 --extra-index-url https://download.pytorch.org/whl/nightly/cu128
 pip install -r requirements.txt # Do not pip-sync as it will uninstall the nightly build 

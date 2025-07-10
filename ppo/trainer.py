@@ -18,6 +18,11 @@ from environment import (
     create_train_env,
     get_action_space,
 )
+from utils import (
+    is_remote_fs,
+    load_model_checkpoint,
+    save_model_checkpoint,
+)
 
 from .agent import PPOAgent
 
@@ -56,11 +61,15 @@ class Trainer:
             self.render_env.reset()
             logger.info("Rendering environment created")
 
-        # Setup dirs
-        os.makedirs(self.training_config.log_path, exist_ok=True)
-        os.makedirs(self.training_config.saved_path, exist_ok=True)
+        # Setup local dirs
+        if not is_remote_fs(self.training_config.model_path):
+            os.makedirs(self.training_config.log_path, exist_ok=True)
+            os.makedirs(self.training_config.model_path, exist_ok=True)
 
         # Tensorboard training metrics tracking
+        # For VertexAI, log_path may be a GCS path (gs://...)
+        # SummaryWriter can handle GCS paths directly if google-cloud-storage is installed
+        logger.info(f"TensorBoard log directory: {self.training_config.log_path}")
         self.writer = SummaryWriter(log_dir=self.training_config.log_path)
         self.episode = 0
         self.total_steps = 0
@@ -306,6 +315,8 @@ class Trainer:
             self.writer.add_scalar('training/mean_return', rollout_data['returns'].mean().item(), self.episode)
             self.writer.add_scalar('training/mean_advantage', rollout_data['advantages'].mean().item(), self.episode)
             self.writer.add_scalar('training/advantage_std', rollout_data['advantages'].std().item(), self.episode)
+        
+        self.writer.flush() # Flush for VertexAI TensorBoard real-time viewing
 
     def close(self):
         """Clean up resources including multiprocessing environments."""
@@ -323,14 +334,15 @@ class Trainer:
         """Destructor to ensure cleanup on object deletion."""
         try:
             self.close()
-        except:
-            pass  # Ignore errors during cleanup
+        except Exception as e:
+            # Ignore errors during cleanup
+            logger.error(e)
 
     def save_model(self, name: str):
         """Save the current model."""
-        from utils import save_model_checkpoint
+
         model_name = f"ppo_mario_{self.training_config.world}_{self.training_config.stage}_{name}.pt"
-        path = os.path.join(self.training_config.saved_path, model_name)
+        path = f"{self.training_config.model_path}/{model_name}"
 
         metadata = {
             'action_space': self.training_config.action_type,
@@ -351,11 +363,11 @@ class Trainer:
         logger.info(f"Model saved to {path}")
 
     def load_model(self, path: str) -> tuple:
-        """Load a model and return checkpoint information.
-        """
-        from utils import load_model_checkpoint
+        """Load a model and return checkpoint information."""
         training_config, model_config, metadata = load_model_checkpoint(
-            path, self.agent.policy, self.agent.optimizer, self.agent.device
+            path,
+            self.agent.policy,
+            self.agent.optimizer,
         )
         logger.info(f"Model loaded from {path}")
         return training_config, model_config, metadata

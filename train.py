@@ -1,4 +1,5 @@
 import argparse
+import os
 from config import TrainingConfig
 from ppo.trainer import Trainer
 from utils.logs import setup_logger
@@ -20,8 +21,13 @@ def main():
     # Process args
     parser.add_argument("--render", action="store_true", help="Render the first environment during training")
     parser.add_argument("--mp", action="store_true", help="Use multiprocessing or not")
+    parser.add_argument("--gpu", type=int, default=None, help="GPU device ID to use")
 
     args = parser.parse_args()
+
+    # Set GPU device if specified
+    if args.gpu is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 
     config = TrainingConfig(
         world=args.world,
