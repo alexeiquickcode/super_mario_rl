@@ -28,7 +28,7 @@ RUN python3.12 -m venv /opt/.venv && \
     ln -sf /opt/.venv/bin/python3.12 /opt/.venv/bin/python
 
 # Install torch
-RUN pip install torch==2.3.1+cu121
+RUN pip install torch==2.3.1+cu121 --find-links https://download.pytorch.org/whl/torch_stable.html
 
 # Install Python deps
 COPY requirements.in requirements.in 
