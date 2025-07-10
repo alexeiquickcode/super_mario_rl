@@ -15,7 +15,7 @@ RUN apt-get update && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-    python3.12 python3.12-venv curl wget gnupg unixodbc unixodbc-dev && \
+    python3.12 python3.12-venv curl wget gnupg gcc g++ build-essential python3.12-dev && \
     apt-get purge -y software-properties-common && \
     apt-get autoremove -y && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
