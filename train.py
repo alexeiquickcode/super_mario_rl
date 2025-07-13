@@ -25,10 +25,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Set GPU device if specified
-    if args.gpu is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
-
     config = TrainingConfig(
         world=args.world,
         stage=args.stage,

@@ -30,7 +30,7 @@ class TrainingConfig:
     epsilon: float = 0.2
 
     # Training structure
-    num_envs: int = 16
+    num_envs: int = 8
     num_local_steps: int = 512
     num_epochs: int = 4
     batch_size: int = 512
@@ -38,8 +38,8 @@ class TrainingConfig:
 
     # Logging and saving
     save_interval: int = 50
-    log_path: str = f"{os.getenv("GCS_BUCKET")}/logs"
-    model_path: str = f"{os.getenv("GCS_BUCKET")}/models"
+    log_path: str = f"{os.getenv("GCS_BUCKET", "runs")}/logs"
+    model_path: str = f"{os.getenv("GCS_BUCKET", "runs")}/models"
 
 
 @dataclass
