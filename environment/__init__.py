@@ -1,5 +1,5 @@
+import warnings
 import gym_super_mario_bros
-from gym import Env
 from gym_super_mario_bros.actions import (
     COMPLEX_MOVEMENT,
     RIGHT_ONLY,
@@ -11,6 +11,14 @@ from .wrappers import (
     CustomReward,
     CustomSkipFrame,
 )
+
+# Suppress the gym environment version warnings
+warnings.filterwarnings("ignore", message=".*is out of date.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*old step API.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*Initializing environment.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*Core environment is written in old step API.*", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*new_step_api.*", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*`np.bool8` is a deprecated alias for `np.bool_`.*", category=DeprecationWarning)
 
 
 def get_action_space(action_type: str) -> list[list[str]]:
@@ -25,7 +33,7 @@ def get_action_space(action_type: str) -> list[list[str]]:
         raise ValueError(f"Unknown action type: {action_type}")
 
 
-def create_train_env(world: int, stage: int, action_type: str) -> Env:
+def create_train_env(world: int, stage: int, action_type: str):
     """Create a training environment for Super Mario Bros.
 
     Args:

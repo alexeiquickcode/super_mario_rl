@@ -1,6 +1,10 @@
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 @dataclass
 class TrainingConfig:
@@ -30,6 +34,7 @@ class TrainingConfig:
     epsilon: float = 0.2
 
     # Training structure
+    num_episodes: int = 750
     num_envs: int = 8
     num_local_steps: int = 512
     num_epochs: int = 4
@@ -38,8 +43,18 @@ class TrainingConfig:
 
     # Logging and saving
     save_interval: int = 50
-    log_path: str = f"{os.getenv("GCS_BUCKET", "runs")}/logs"
-    model_path: str = f"{os.getenv("GCS_BUCKET", "runs")}/models"
+    log_path: str | None = None
+    model_path: str | None = None
+
+    def __post_init__(self):
+        """Set up unique paths based on world and stage."""
+        base_path = os.getenv("GCS_BUCKET", "runs")
+        world_stage = f"world_{self.world}_stage_{self.stage}"
+
+        if self.log_path is None:
+            self.log_path = f"{base_path}/logs/{world_stage}"
+        if self.model_path is None:
+            self.model_path = f"{base_path}/models/{world_stage}"
 
 
 @dataclass

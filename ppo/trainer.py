@@ -34,7 +34,12 @@ from .agent import PPOAgent
 class Trainer:
     """PPO Trainer for Super Mario Bros."""
 
-    def __init__(self, training_config: TrainingConfig, render: bool = False, use_multiprocessing: bool = True):
+    def __init__(
+        self,
+        training_config: TrainingConfig,
+        render: bool = False,
+        use_multiprocessing: bool = True,
+    ):
         self.training_config = training_config
         self.render = render
         self.use_multiprocessing = use_multiprocessing
@@ -50,7 +55,7 @@ class Trainer:
         if self.use_multiprocessing:
             self.envs = self._create_environments_mp()
         else:
-            self.envs = self._create_environments_simple()
+            self.envs = self._create_environments_no_mp()
 
         # Create separate rendering environment if rendering is enabled
         self.render_env = None
@@ -78,9 +83,9 @@ class Trainer:
 
     # ---- Environments ----------------------------------------------
 
-    def _create_environments_simple(self) -> list:
-        """Create environments without multiprocessing (simple approach)."""
-        logger.info(f"Creating {self.training_config.num_envs} environments (simple mode)")
+    def _create_environments_no_mp(self) -> list:
+        """Create environments without multiprocessing."""
+        logger.info(f"Creating {self.training_config.num_envs} environments (with no mulitprocessing)")
         envs = []
         for i in range(self.training_config.num_envs):
             env = create_train_env(
@@ -92,8 +97,8 @@ class Trainer:
         return envs
 
     def _create_environments_mp(self):
-        """Create environments with multiprocessing (faster approach)."""
-        logger.info(f"Creating {self.training_config.num_envs} environments with multiprocessing")
+        """Create environments with multiprocessing."""
+        logger.info(f"Creating {self.training_config.num_envs} environments (with multiprocessing)")
         mp_wrapper = MultiprocessingEnvWrapper(
             self.training_config.num_envs, self.training_config.world, self.training_config.stage,
             self.training_config.action_type
@@ -261,10 +266,10 @@ class Trainer:
         self._log_metrics(loss_info, rollout_data)
         return loss_info
 
-    def train(self, total_episodes: int = 1000):
+    def train(self):
         """Main training loop."""
 
-        for episode in range(total_episodes):
+        for episode in range(self.training_config.num_episodes):
             self.episode = episode
 
             loss_info = self.train_step()
@@ -315,8 +320,8 @@ class Trainer:
             self.writer.add_scalar('training/mean_return', rollout_data['returns'].mean().item(), self.episode)
             self.writer.add_scalar('training/mean_advantage', rollout_data['advantages'].mean().item(), self.episode)
             self.writer.add_scalar('training/advantage_std', rollout_data['advantages'].std().item(), self.episode)
-        
-        self.writer.flush() # Flush for VertexAI TensorBoard real-time viewing
+
+        self.writer.flush()  # Flush for VertexAI TensorBoard real-time viewing
 
     def close(self):
         """Clean up resources including multiprocessing environments."""
@@ -378,7 +383,14 @@ class Trainer:
 # ------------------------------------------------------------------------------
 
 
-def worker(worker_id: int, env_queue: Queue, result_queue: Queue, world: int, stage: int, action_type: str) -> None:
+def worker(
+    worker_id: int,
+    env_queue: Queue,
+    result_queue: Queue,
+    world: int,
+    stage: int,
+    action_type: str,
+) -> None:
     """Worker function that runs in a separate process to handle one environment."""
     try:
         env = create_train_env(world, stage, action_type)

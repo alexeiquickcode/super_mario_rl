@@ -1,5 +1,13 @@
 import argparse
-import os
+import multiprocessing
+
+# Set multiprocessing start method to avoid fork issues
+try:
+    multiprocessing.set_start_method('spawn', force=True)
+except RuntimeError:
+    # Already set in `train_all_levels.py`
+    pass
+
 from config import TrainingConfig
 from ppo.trainer import Trainer
 from utils.logs import setup_logger
@@ -37,7 +45,7 @@ def main():
     )
 
     trainer = Trainer(config, render=args.render, use_multiprocessing=args.mp)
-    trainer.train(total_episodes=args.num_episodes)
+    trainer.train()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
+import multiprocessing
 import os
 import subprocess
 import sys
+import threading
 import time
 from argparse import (
     ArgumentParser,
@@ -11,10 +13,40 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
 )
-from typing import Any
 
 import torch
 from loguru import logger
+
+# Set multiprocessing start method to avoid fork issues
+multiprocessing.set_start_method('spawn', force=True)
+
+
+def stream_output(process, world, stage, stream_name):
+    """Stream output from a subprocess in real-time."""
+    stream = process.stdout if stream_name == "stdout" else process.stderr
+    captured_lines = []
+
+    try:
+        for line in iter(stream.readline, ''):
+            if line:
+                # Remove trailing newline and add prefix
+                clean_line = line.rstrip('\n\r')
+                prefixed_line = f"[World {world}-{stage}] {clean_line}"
+
+                # Print to console in real-time
+                if stream_name == "stdout":
+                    logger.info(prefixed_line)
+                else:
+                    logger.error(prefixed_line)
+
+                # Store for result
+                captured_lines.append(line)
+    except Exception as e:
+        logger.error(f"Error streaming {stream_name} for World {world}-{stage}: {e}")
+    finally:
+        stream.close()
+
+    return ''.join(captured_lines)
 
 
 def train_level(world: int, stage: int, gpu_id: int):
@@ -40,40 +72,43 @@ def train_level(world: int, stage: int, gpu_id: int):
     logger.info(f"Running command: {cmd_str} with GPU {gpu_id}")
 
     try:
-        result = subprocess.run(cmd, env=env, check=True, capture_output=True, text=True, timeout=3 * 3600)
-        logger.info(f"Completed World {world}-{stage} on GPU {gpu_id}")
-        if result.stdout:
-            logger.info(f"World {world}-{stage} stdout: {result.stdout[-500:]}")  # Last 500 chars
+        # Use Popen for real-time streaming
+        process = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+            universal_newlines=True
+        )
 
-        return world, stage, True
+        # Start threads to stream output in real-time
+        stdout_thread = threading.Thread(target=stream_output, args=(process, world, stage, "stdout"))
+        stderr_thread = threading.Thread(target=stream_output, args=(process, world, stage, "stderr"))
+        stdout_thread.daemon = True
+        stderr_thread.daemon = True
+        stdout_thread.start()
+        stderr_thread.start()
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed World {world}-{stage} on GPU {gpu_id}")
-        logger.error(f"Command: {cmd_str}")
-        logger.error(f"Return code: {e.returncode}")
+        # Wait for process to complete with timeout
+        try:
+            return_code = process.wait(timeout=3 * 3600)
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout World {world}-{stage} on GPU {gpu_id} after {3 * 3600} seconds")
+            process.kill()
+            return world, stage, False
 
-        if e.stderr:
-            logger.error(f"World {world}-{stage} stderr: {e.stderr}")
+        # Wait for streaming threads to finish
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+
+        if return_code == 0:
+            logger.info(f"Completed World {world}-{stage} on GPU {gpu_id}")
+            return world, stage, True
         else:
-            logger.error(f"World {world}-{stage}: No stderr output")
-
-        if e.stdout:
-            logger.error(f"World {world}-{stage} stdout: {e.stdout}")
-        else:
-            logger.error(f"World {world}-{stage}: No stdout output")
-
-        return world, stage, False
-
-    except subprocess.TimeoutExpired as e:
-        logger.error(f"Timeout World {world}-{stage} on GPU {gpu_id} after {3 * 3600} seconds")
-        logger.error(f"Command: {cmd_str}")
-
-        if e.stdout:
-            logger.error(f"World {world}-{stage} timeout stdout: {e.stdout[-1000:]}")  # Last 1000 chars
-        if e.stderr:
-            logger.error(f"World {world}-{stage} timeout stderr: {e.stderr[-1000:]}")  # Last 1000 chars
-
-        return world, stage, False
+            logger.error(f"Failed World {world}-{stage} on GPU {gpu_id} with return code {return_code}")
+            return world, stage, False
 
     except Exception as e:
         logger.error(f"Unexpected error World {world}-{stage} on GPU {gpu_id}: {type(e).__name__}: {e}")
@@ -140,13 +175,13 @@ def train_all_levels(num_gpus, levels_per_gpu: int):
                     future = executor.submit(train_level, world, stage, gpu_id)
                     future_to_info[future] = (world, stage, gpu_id)
                     active_jobs_per_gpu[gpu_id] += 1
-                    
+
                     logger.info(f"Submitted: World {world}-{stage} to GPU {gpu_id}")
 
-                    # NOTE: Small delay to stagger submissions, 10-30s is required 
+                    # NOTE: Small delay to stagger submissions, 10-30s is required
                     # to avoid overloading the CPU initially as we are spinning up
                     # lot of processes at once.
-                    time.sleep(30)  
+                    time.sleep(15)
 
         # 2. Process completed jobs and submit new ones
         while future_to_info:
