@@ -1,13 +1,7 @@
 import os
-import queue
-from multiprocessing import (
-    Process,
-    Queue,
-)
 
 import numpy as np
 import torch
-from loguru import logger
 from torch.utils.tensorboard import SummaryWriter
 
 from config import (
@@ -23,12 +17,10 @@ from utils import (
     load_model_checkpoint,
     save_model_checkpoint,
 )
+from utils.logs import logger_manager
 
-from .agent import PPOAgent
-
-# ------------------------------------------------------------------------------
-# ---- Main Trainer Class ------------------------------------------------------
-# ------------------------------------------------------------------------------
+from ..agent import PPOAgent
+from .parallel_envs import MultiprocessingEnvWrapper
 
 
 class Trainer:
@@ -45,9 +37,15 @@ class Trainer:
         self.use_multiprocessing = use_multiprocessing
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+        # Get logger for this specific level
+        self.logger = logger_manager.get_level_logger(
+            self.training_config.world,
+            self.training_config.stage,
+        )
+
         # Create agent
-        actions = get_action_space(self.training_config.action_type)
-        num_actions = len(actions)
+        actions: list[list[str]] = get_action_space(self.training_config.action_type)
+        num_actions: int = len(actions)
         self.model_config = ModelConfig(num_actions=num_actions)
         self.agent = PPOAgent(training_config, self.model_config)
 
@@ -64,7 +62,7 @@ class Trainer:
                 self.training_config.world, self.training_config.stage, self.training_config.action_type
             )
             self.render_env.reset()
-            logger.info("Rendering environment created")
+            self.logger.info("Rendering environment created")
 
         # Setup local dirs
         if not is_remote_fs(self.training_config.model_path):
@@ -72,9 +70,7 @@ class Trainer:
             os.makedirs(self.training_config.model_path, exist_ok=True)
 
         # Tensorboard training metrics tracking
-        # For VertexAI, log_path may be a GCS path (gs://...)
-        # SummaryWriter can handle GCS paths directly if google-cloud-storage is installed
-        logger.info(f"TensorBoard log directory: {self.training_config.log_path}")
+        self.logger.info(f"TensorBoard log directory: {self.training_config.log_path}")
         self.writer = SummaryWriter(log_dir=self.training_config.log_path)
         self.episode = 0
         self.total_steps = 0
@@ -85,7 +81,7 @@ class Trainer:
 
     def _create_environments_no_mp(self) -> list:
         """Create environments without multiprocessing."""
-        logger.info(f"Creating {self.training_config.num_envs} environments (with no mulitprocessing)")
+        self.logger.info(f"Creating {self.training_config.num_envs} environments (with no mulitprocessing)")
         envs = []
         for i in range(self.training_config.num_envs):
             env = create_train_env(
@@ -98,7 +94,7 @@ class Trainer:
 
     def _create_environments_mp(self):
         """Create environments with multiprocessing."""
-        logger.info(f"Creating {self.training_config.num_envs} environments (with multiprocessing)")
+        self.logger.info(f"Creating {self.training_config.num_envs} environments (with multiprocessing)")
         mp_wrapper = MultiprocessingEnvWrapper(
             self.training_config.num_envs, self.training_config.world, self.training_config.stage,
             self.training_config.action_type
@@ -142,11 +138,11 @@ class Trainer:
             render_action = actions_np[0]  # Use action from 1st env
             try:
                 self.render_env.render()
-                render_state, _, render_done, _ = self.render_env.step(render_action)  # type: ignore
+                render_state, _, render_done, _ = self.render_env.step(render_action)
                 if render_done:
                     self.render_env.reset()
             except Exception as e:
-                logger.warning(f"Rendering error: {e}")
+                self.logger.warning(f"Rendering error: {e}")
 
         states = torch.from_numpy(states).float().to(self.device)
         rewards = torch.tensor(rewards, dtype=torch.float).to(self.device)
@@ -269,9 +265,10 @@ class Trainer:
     def train(self):
         """Main training loop."""
 
-        for episode in range(self.training_config.num_episodes):
+        # Start from the next episode when resuming, or from episode 0 when starting fresh
+        start_episode = self.episode + 1 if hasattr(self, '_resumed_from_checkpoint') else self.episode
+        for episode in range(start_episode, self.training_config.num_episodes):
             self.episode = episode
-
             loss_info = self.train_step()
 
             # Log
@@ -279,7 +276,7 @@ class Trainer:
                 recent_rewards = self.episode_rewards[-20:] if self.episode_rewards else [0]
                 mean_reward = np.mean(recent_rewards)
 
-                logger.info(
+                self.logger.info(
                     f"Episode {episode}: "
                     f"Total Loss: {loss_info['total_loss']:.4f}, "
                     f"Actor Loss: {loss_info['actor_loss']:.4f}, "
@@ -326,14 +323,14 @@ class Trainer:
     def close(self):
         """Clean up resources including multiprocessing environments."""
         if isinstance(self.envs, MultiprocessingEnvWrapper):
-            logger.info("Closing multiprocessing environments...")
+            self.logger.info("Closing multiprocessing environments...")
             self.envs.close()
 
         if self.render_env is not None:
             try:
                 self.render_env.close()
             except Exception as e:
-                logger.warning(f"Error closing render environment: {e}")
+                self.logger.warning(f"Error closing render environment: {e}")
 
     def __del__(self):
         """Destructor to ensure cleanup on object deletion."""
@@ -341,7 +338,7 @@ class Trainer:
             self.close()
         except Exception as e:
             # Ignore errors during cleanup
-            logger.error(e)
+            self.logger.error(f"Error during cleanup: {e}")
 
     def save_model(self, name: str):
         """Save the current model."""
@@ -365,7 +362,7 @@ class Trainer:
             self.agent.model_config,
             metadata,
         )
-        logger.info(f"Model saved to {path}")
+        self.logger.info(f"Model saved to {path}")
 
     def load_model(self, path: str) -> tuple:
         """Load a model and return checkpoint information."""
@@ -374,119 +371,26 @@ class Trainer:
             self.agent.policy,
             self.agent.optimizer,
         )
-        logger.info(f"Model loaded from {path}")
+        self.logger.info(f"Model loaded from {path}")
         return training_config, model_config, metadata
 
+    def resume_from_checkpoint(self, checkpoint_path: str) -> None:
+        """Resume training from a checkpoint."""
+        self.logger.info(f"Resuming training from checkpoint: {checkpoint_path}")
 
-# ------------------------------------------------------------------------------
-# ---- Multiprocessing ---------------------------------------------------------
-# ------------------------------------------------------------------------------
+        # Load the checkpoint
+        training_config, model_config, metadata = self.load_model(checkpoint_path)
 
+        # Resume from the saved episode and step count
+        self.episode = metadata.get('episode', 0)
+        self._resumed_from_checkpoint = True  # To calculate remaining episodes
+        self.logger.info(f"Resuming from episode {self.episode}")
 
-def worker(
-    worker_id: int,
-    env_queue: Queue,
-    result_queue: Queue,
-    world: int,
-    stage: int,
-    action_type: str,
-) -> None:
-    """Worker function that runs in a separate process to handle one environment."""
-    try:
-        env = create_train_env(world, stage, action_type)
-        while True:
-            try:
-                cmd, data = env_queue.get(timeout=30)  # Get cmd from main process
-
-                if cmd == 'reset':
-                    state = env.reset()
-                    result_queue.put(('reset', state))
-                elif cmd == 'step':
-                    action = data
-                    state, reward, done, info = env.step(action)  # type: ignore
-                    result_queue.put(('step', (state, reward, done, info)))
-                elif cmd == 'close':
-                    env.close()
-                    break
-
-            except queue.Empty:
-                continue
-            except Exception as e:
-                result_queue.put(('error', str(e)))
-    except Exception as e:
-        result_queue.put(('error', str(e)))
-
-
-class MultiprocessingEnvWrapper:
-    """Wrapper to manage multiple environments running in separate processes."""
-
-    def __init__(self, num_envs, world, stage, action_type):
-        self.num_envs = num_envs
-        self.processes = []
-        self.env_queues = []
-        self.result_queues = []
-
-        # Create processes and queues
-        for i in range(num_envs):
-            env_queue = Queue()
-            result_queue = Queue()
-            process = Process(target=worker, args=(i, env_queue, result_queue, world, stage, action_type))
-            process.start()
-            self.processes.append(process)
-            self.env_queues.append(env_queue)
-            self.result_queues.append(result_queue)
-
-    def reset(self):
-        """Reset all environments and return initial states."""
-
-        # Send reset commands to all workers
-        for env_queue in self.env_queues:
-            env_queue.put(('reset', None))
-
-        # Collect results
-        states = []
-        for result_queue in self.result_queues:
-            cmd, state = result_queue.get()
-            if cmd == 'error':
-                raise RuntimeError(f"Environment reset error: {state}")
-            states.append(state)
-
-        return np.stack(states, axis=0)
-
-    def step(self, actions):
-        """Step all environments with given actions."""
-
-        # Send step commands to all workers
-        for i, env_queue in enumerate(self.env_queues):
-            env_queue.put(('step', actions[i]))
-
-        # Collect results
-        states, rewards, dones, infos = [], [], [], []
-        for result_queue in self.result_queues:
-            cmd, result = result_queue.get()
-            if cmd == 'error':
-                raise RuntimeError(f"Environment step error: {result}")
-            state, reward, done, info = result
-            states.append(state)
-            rewards.append(reward)
-            dones.append(done)
-            infos.append(info)
-
-        return np.stack(states, axis=0), rewards, dones, infos
-
-    def close(self):
-        """Close all environments and terminate processes."""
-
-        # Send close commands
-        for env_queue in self.env_queues:
-            try:
-                env_queue.put(('close', None))
-            except:
-                pass  # Queue might be closed already
-
-        # Wait for processes to finish and terminate if needed
-        for process in self.processes:
-            process.join(timeout=5)
-            if process.is_alive():
-                process.terminate()
-                process.join()
+        # Update training config with remaining episodes (accounting for starting at next episode)
+        remaining_episodes = self.training_config.num_episodes - (self.episode + 1)
+        if remaining_episodes > 0:
+            self.logger.info(f"Will train for {remaining_episodes} more episodes")
+        else:
+            self.logger.warning(
+                f"Checkpoint episode ({self.episode}) >= target episodes ({self.training_config.num_episodes})"
+            )

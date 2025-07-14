@@ -1,10 +1,11 @@
 import argparse
-import glob
 import time
 
 import numpy as np
 import torch
-from loguru import logger
+from numpy import floating
+from numpy.typing import NDArray
+from torch import Tensor
 
 from config import (
     ModelConfig,
@@ -12,10 +13,11 @@ from config import (
 )
 from environment import create_train_env
 from ppo.agent import PPOAgent
-from utils import load_model_checkpoint
-from utils.logs import setup_logger
-
-setup_logger()
+from utils import (
+    get_latest_model,
+    load_model_checkpoint,
+    logger_manager,
+)
 
 
 class Evaluator:
@@ -31,6 +33,10 @@ class Evaluator:
         self.stage = stage
         self.render = True
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        # Set up logger for this world-stage
+        self.logger = logger_manager.get_logger(f"{world}-{stage}")
+
         self._load_model()
         self.env = create_train_env(self.world, self.stage, self.action_type)
 
@@ -38,13 +44,15 @@ class Evaluator:
         self,
         max_steps: int = 10000,
         step_delay: float = 0.0,
-    ) -> dict:
+    ) -> dict[str, float | int | bool]:
         """Run a single episode and return statistics."""
-        state = self.env.reset()
+
+        state: NDArray[floating] = self.env.reset()
         total_reward = 0
         steps = 0
-        state_tensor = torch.FloatTensor(state).unsqueeze(0)
+        state_tensor: Tensor = torch.FloatTensor(state).unsqueeze(0)
 
+        info = {}
         while steps < max_steps:
 
             # Render env
@@ -55,14 +63,14 @@ class Evaluator:
 
             # 1. Get action from agent
             actions, _, _ = self.agent.get_action(state_tensor)
-            action = actions.item()
+            action: int = int(actions.item())  # Ensure action is int
 
             # 2. Take step
-            next_state, reward, done, info = self.env.step(action)  # type: ignore
+            next_state, reward, done, info = self.env.step(action)
 
             # 3. Update state
-            state = next_state
-            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            state: NDArray[floating] = next_state
+            state_tensor: Tensor = torch.FloatTensor(state).unsqueeze(dim=0)
 
             total_reward += reward
             steps += 1
@@ -70,13 +78,13 @@ class Evaluator:
                 break
 
         # Episode statistics
-        stats = {
+        stats: dict[str, float | int | bool] = {
             'total_reward': total_reward,
             'steps': steps,
-            'final_score': info.get('score', 0),  # type: ignore
-            'final_x_pos': info.get('x_pos', 0),  # type: ignore
-            'flag_get': info.get('flag_get', False),  # type: ignore
-            'time_left': info.get('time', 0),  # type: ignore
+            'final_score': info.get('score', 0),
+            'final_x_pos': info.get('x_pos', 0),
+            'flag_get': info.get('flag_get', False),
+            'time_left': info.get('time', 0),
         }
 
         return stats
@@ -86,22 +94,25 @@ class Evaluator:
         num_episodes: int = 5,
         max_steps: int = 10000,
         step_delay: float = 0.0,
-    ) -> dict:
+    ) -> dict[str, floating]:
         """Run multiple episodes and return aggregated statistics."""
 
         episode_stats = []
         for episode in range(num_episodes):
-            logger.info(f"\n{30*'-'} Episode {episode + 1}/{num_episodes} {30*'-'}")
+            self.logger.info(f"\n{30*'-'} Episode {episode + 1}/{num_episodes} {30*'-'}")
 
-            stats = self.evaluate_single_episode(max_steps=max_steps, step_delay=step_delay)
+            stats: dict[str, float | int | bool] = self.evaluate_single_episode(
+                max_steps=max_steps,
+                step_delay=step_delay,
+            )
             episode_stats.append(stats)
 
-            logger.info(f"Total Reward: {stats['total_reward']:.2f}")
-            logger.info(f"Steps: {stats['steps']}")
-            logger.info(f"Final Score: {stats['final_score']}")
-            logger.info(f"Final X-pos: {stats['final_x_pos']}")
-            logger.info(f"Flag Get: {stats['flag_get']}")
-            logger.info(f"Time Left: {stats['time_left']}")
+            self.logger.info(f"Total Reward: {stats['total_reward']:.2f}")
+            self.logger.info(f"Steps: {stats['steps']}")
+            self.logger.info(f"Final Score: {stats['final_score']}")
+            self.logger.info(f"Final X-pos: {stats['final_x_pos']}")
+            self.logger.info(f"Flag Get: {stats['flag_get']}")
+            self.logger.info(f"Time Left: {stats['time_left']}")
 
         aggregated = {
             'mean_reward': np.mean([s['total_reward'] for s in episode_stats]),
@@ -119,7 +130,7 @@ class Evaluator:
 
     def _load_model(self):
         """Load the trained model."""
-        logger.info(f"Loading model from: {self.model_path}")
+        self.logger.info(f"Loading model from: {self.model_path}")
 
         # Load checkpoint with safe globals to handle config classes
         with torch.serialization.safe_globals([TrainingConfig, ModelConfig]):
@@ -139,27 +150,14 @@ class Evaluator:
         # Create agent
         self.agent = PPOAgent(training_config, model_config)
 
-        # Load weights
-        load_model_checkpoint(self.model_path, self.agent.policy, self.agent.optimizer, self.device)
+        # Load weights - load_model_checkpoint now returns tuple
+        _, _, _ = load_model_checkpoint(self.model_path, self.agent.policy, self.agent.optimizer)
         self.agent.policy.eval()
         return
 
     def close(self):
         """Close the environment."""
         self.env.close()
-
-
-def get_latest_model(world: int = 1, stage: int = 1) -> str | None:
-    """Get the path to the latest trained model."""
-
-    pattern = f"models/ppo_mario_{world}_{stage}_episode_*.pt"
-    model_files = glob.glob(pattern)
-    if not model_files:
-        return None
-
-    # Sort by episode number (from filename)
-    model_files.sort(key=lambda x: int(x.split('_episode_')[1].split('.')[0]))
-    return model_files[-1]
 
 
 # ------------------------------------------------------------------------------
@@ -186,6 +184,9 @@ def main():
     model_path: str | None = get_latest_model(args.world, args.stage)
     if model_path is None:
         raise ValueError(f"No trained models found for World {args.world}-{args.stage}")
+
+    # Set up logger for main evaluation
+    logger = logger_manager.get_logger(f"{args.world}-{args.stage}")
 
     # Run eval
     evaluator = Evaluator(model_path=model_path, world=args.world, stage=args.stage)

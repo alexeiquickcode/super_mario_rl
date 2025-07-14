@@ -1,4 +1,3 @@
-import multiprocessing
 import os
 import subprocess
 import sys
@@ -10,48 +9,25 @@ from argparse import (
 )
 from collections import deque
 from concurrent.futures import (
+    Future,
     ThreadPoolExecutor,
     as_completed,
 )
+from typing import TypeAlias
 
 import torch
-from loguru import logger
 
-# Set multiprocessing start method to avoid fork issues
-multiprocessing.set_start_method('spawn', force=True)
+from utils.logs import logger_manager
 
+logger = logger_manager.get_logger("orchestrator")
 
-def stream_output(process, world, stage, stream_name):
-    """Stream output from a subprocess in real-time."""
-    stream = process.stdout if stream_name == "stdout" else process.stderr
-    captured_lines = []
-
-    try:
-        for line in iter(stream.readline, ''):
-            if line:
-                # Remove trailing newline and add prefix
-                clean_line = line.rstrip('\n\r')
-                prefixed_line = f"[World {world}-{stage}] {clean_line}"
-
-                # Print to console in real-time
-                if stream_name == "stdout":
-                    logger.info(prefixed_line)
-                else:
-                    logger.error(prefixed_line)
-
-                # Store for result
-                captured_lines.append(line)
-    except Exception as e:
-        logger.error(f"Error streaming {stream_name} for World {world}-{stage}: {e}")
-    finally:
-        stream.close()
-
-    return ''.join(captured_lines)
+AllLevels: TypeAlias = list[tuple[int, int]]
 
 
 def train_level(world: int, stage: int, gpu_id: int):
     """Train a single level on a specific GPU."""
-    logger.info(f"Starting World {world}-{stage} on GPU {gpu_id}")
+    level_logger = logger_manager.get_level_logger(world, stage)
+    level_logger.info(f"Starting World {world}-{stage} on GPU {gpu_id}")
 
     cmd: list[str] = [
         "python",
@@ -63,13 +39,13 @@ def train_level(world: int, stage: int, gpu_id: int):
         "--mp",
     ]
 
-    # Set up environment with specific GPU
+    # Set up env with specific GPU
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
     # Log process command
     cmd_str = " ".join(cmd)
-    logger.info(f"Running command: {cmd_str} with GPU {gpu_id}")
+    level_logger.info(f"Running command: {cmd_str} with GPU {gpu_id}")
 
     try:
         # Use Popen for real-time streaming
@@ -77,42 +53,45 @@ def train_level(world: int, stage: int, gpu_id: int):
             cmd,
             env=env,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Combine stderr with stdout
             text=True,
             bufsize=1,  # Line buffered
             universal_newlines=True
         )
 
-        # Start threads to stream output in real-time
-        stdout_thread = threading.Thread(target=stream_output, args=(process, world, stage, "stdout"))
-        stderr_thread = threading.Thread(target=stream_output, args=(process, world, stage, "stderr"))
-        stdout_thread.daemon = True
-        stderr_thread.daemon = True
-        stdout_thread.start()
-        stderr_thread.start()
+        # Stream output in real-time
+        def stream_output():
+            if process.stdout is not None:
+                for line in iter(process.stdout.readline, ''):
+                    line = line.strip()
+                    if line:
+                        # Print subprocess output directly to avoid double formatting
+                        print(f"[GPU {gpu_id}] {line}", flush=True)
+
+        # Start streaming in a separate thread
+        stream_thread = threading.Thread(target=stream_output)
+        stream_thread.daemon = True
+        stream_thread.start()
 
         # Wait for process to complete with timeout
         try:
             return_code = process.wait(timeout=3 * 3600)
+            stream_thread.join(timeout=1)  # Give thread time to finish
         except subprocess.TimeoutExpired:
-            logger.error(f"Timeout World {world}-{stage} on GPU {gpu_id} after {3 * 3600} seconds")
+            level_logger.error(f"Timeout World {world}-{stage} on GPU {gpu_id} after {3 * 3600} seconds")
             process.kill()
             return world, stage, False
 
-        # Wait for streaming threads to finish
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
-
         if return_code == 0:
-            logger.info(f"Completed World {world}-{stage} on GPU {gpu_id}")
+            level_logger.info(f"Completed World {world}-{stage} on GPU {gpu_id}")
             return world, stage, True
         else:
-            logger.error(f"Failed World {world}-{stage} on GPU {gpu_id} with return code {return_code}")
+            level_logger.error(f"Failed World {world}-{stage} on GPU {gpu_id} with return code {return_code}")
             return world, stage, False
 
     except Exception as e:
-        logger.error(f"Unexpected error World {world}-{stage} on GPU {gpu_id}: {type(e).__name__}: {e}")
-        logger.error(f"Command: {cmd_str}")
+        level_logger.error(f"Unexpected error World {world}-{stage} on GPU {gpu_id}: {type(e).__name__}: {e}")
+        level_logger.error(f"Command: {cmd_str}")
         return world, stage, False
 
 
@@ -145,8 +124,8 @@ def train_all_levels(num_gpus, levels_per_gpu: int):
     """Train all levels across multiple GPUs with proper scheduling."""
 
     # Level assignments to GPU
-    all_levels: list[tuple[int, int]] = generate_all_levels()
-    gpu_assignments = assign_levels_to_gpus(all_levels, num_gpus)
+    all_levels: AllLevels = generate_all_levels()
+    gpu_assignments: dict[int, AllLevels] = assign_levels_to_gpus(all_levels, num_gpus)
 
     # Log assignment summary
     logger.info(f"Using {num_gpus} GPUs for training")
@@ -172,7 +151,7 @@ def train_all_levels(num_gpus, levels_per_gpu: int):
             for _ in range(min(levels_per_gpu, len(pending_jobs[gpu_id]))):
                 if pending_jobs[gpu_id]:
                     world, stage = pending_jobs[gpu_id].popleft()
-                    future = executor.submit(train_level, world, stage, gpu_id)
+                    future: Future[tuple[int, int, bool]] = executor.submit(train_level, world, stage, gpu_id)
                     future_to_info[future] = (world, stage, gpu_id)
                     active_jobs_per_gpu[gpu_id] += 1
 
@@ -181,7 +160,7 @@ def train_all_levels(num_gpus, levels_per_gpu: int):
                     # NOTE: Small delay to stagger submissions, 10-30s is required
                     # to avoid overloading the CPU initially as we are spinning up
                     # lot of processes at once.
-                    time.sleep(15)
+                    time.sleep(10)
 
         # 2. Process completed jobs and submit new ones
         while future_to_info:

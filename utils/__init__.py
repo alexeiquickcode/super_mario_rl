@@ -1,3 +1,4 @@
+import glob
 from typing import (
     IO,
     Any,
@@ -11,6 +12,8 @@ import torch.nn as nn
 from fsspec.spec import AbstractFileSystem
 from torch.nn import Module
 from torch.optim import Optimizer
+
+from .logs import logger_manager
 
 CLOUD_PREFIXES = ('s3://', 'gs://')
 
@@ -87,12 +90,12 @@ def load_model_checkpoint(
     optimizer: Optimizer,
 ) -> tuple:
     """Load model checkpoint with training and model configurations.
-    
+
     Args:
         filepath: Path to checkpoint file.
         model: The model to load state into.
         optimizer: The optimizer to load state into.
-        
+
     Returns:
         Tuple of (training_config, model_config, metadata) from checkpoint.
         metadata will be an empty dict if not present in checkpoint.
@@ -109,3 +112,55 @@ def load_model_checkpoint(
 
 def is_remote_fs(path: str) -> bool:
     return path.startswith(CLOUD_PREFIXES)
+
+
+def find_latest_checkpoint(world: int, stage: int, model_path: str) -> str | None:
+    """Find the latest checkpoint for a given world and stage, works with both local and GCS paths."""
+    try:
+        fs, path = get_fs_and_path(model_path)
+
+        # List all files
+        try:
+            files = fs.ls(path)
+        except FileNotFoundError:
+            return None
+
+        # Filter for checkpoint files
+        checkpoint_files = []
+        prefix = f"ppo_mario_{world}_{stage}_episode_"
+
+        for file_info in files:
+            if isinstance(file_info, dict):
+                filename = file_info['name']
+            else:
+                filename = file_info
+
+            basename = filename.split('/')[-1]  # Extract filename
+            if basename.startswith(prefix) and basename.endswith('.pt'):
+                full_path = f"{model_path}/{basename}"
+                checkpoint_files.append(full_path)
+
+        if not checkpoint_files:
+            return None
+
+        # Sort by episode number (from filename)
+        checkpoint_files.sort(key=lambda x: int(x.split('_episode_')[1].split('.')[0]))
+        return checkpoint_files[-1]
+
+    except Exception as e:
+        logger = logger_manager.get_level_logger(world, stage)
+        logger.warning(f"Error searching for checkpoints: {e}")
+        return None
+
+
+def get_latest_model(world: int = 1, stage: int = 1) -> str | None:
+    """Get the path to the latest trained model."""
+
+    pattern: str = f"models/ppo_mario_{world}_{stage}_episode_*.pt"
+    model_files: list[str] = glob.glob(pathname=pattern)
+    if not model_files:
+        return None
+
+    # Sort by episode number (from filename)
+    model_files.sort(key=lambda x: int(x.split('_episode_')[1].split('.')[0]))
+    return model_files[-1]

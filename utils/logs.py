@@ -1,37 +1,82 @@
-import os
-import sys
-import traceback
-from typing import TypeVar
+import logging
+import threading
+from logging.handlers import (
+    QueueHandler,
+    QueueListener,
+)
+from multiprocessing import Queue
+from typing import Any
 
-from loguru import logger as loguru_logger
 
-LOGLEVEL = os.getenv('LOGLEVEL', 'INFO').upper()
-T = TypeVar('T')
+def setup_log_queue() -> "Queue[Any]":
+    log_queue: "Queue[Any]" = Queue()
 
-
-def setup_logger():
-    """Sets up the loguru logger."""
-    loguru_logger.remove(handler_id=None)  # Removes existing all loggers.
-    loguru_logger.add(
-        sys.stdout,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-        "<m><b>JOBS</b></m> | "
-        "<level>{level: <8}</level> | "
-        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan>"
-        " - <level>{message}</level>",
-        level=LOGLEVEL,
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)s | %(world_stage)s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S'
     )
-    return
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+
+    listener = QueueListener(log_queue, console_handler)
+    listener.start()
+
+    return log_queue
 
 
-def get_traceback(exc: Exception, ex_traceback=None) -> tuple[str, str]:
-    """Returns the traceback message of an exception."""
+class SubprocessLogger:
+    """Logger wrapper that adds world_stage context to log messages."""
 
-    if ex_traceback is None:
-        ex_traceback = exc.__traceback__
-    tb_lines: list[str] = [line.rstrip('\n') for line in traceback.format_exception(exc.__class__, exc, ex_traceback)]
-    formatted_tb_lines: list[str] = [line.replace('\n', ' ').replace('\t', ' ') for line in tb_lines]
-    message: str = f'{exc}. {" ;; ".join(formatted_tb_lines)}'
-    top_level_exception: str = tb_lines[-1]
+    def __init__(self, logger: logging.Logger, world_stage: str):
+        self.logger = logger
+        self.world_stage = world_stage
 
-    return message, top_level_exception
+    def info(self, msg: str) -> None:
+        self.logger.info(msg, extra={"world_stage": self.world_stage})
+
+    def error(self, msg: str) -> None:
+        self.logger.error(msg, extra={"world_stage": self.world_stage})
+
+    def warning(self, msg: str) -> None:
+        self.logger.warning(msg, extra={"world_stage": self.world_stage})
+
+
+def log_subprocess(log_queue: "Queue[Any]", world_stage: str = "X-Y") -> SubprocessLogger:
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.handlers = []  # Avoid duplicate handlers
+    handler = QueueHandler(log_queue)
+    logger.addHandler(handler)
+    logger.propagate = False
+
+    return SubprocessLogger(logger, world_stage)
+
+
+class LoggerManager:
+    """
+    Centralized logger manager for thread-safe access to level-specific loggers.
+
+    Usage:
+        logger = logger_manager.get_logger("1-1")
+        logger.info('THIS IS A LOG')
+    """
+
+    def __init__(self):
+        self.log_queue = setup_log_queue()
+        self._loggers: dict[str, SubprocessLogger] = {}
+        self._lock = threading.Lock()
+
+    def get_logger(self, world_stage: str = "main") -> SubprocessLogger:
+        """Get or create a logger for the specified world stage."""
+        with self._lock:
+            if world_stage not in self._loggers:
+                self._loggers[world_stage] = log_subprocess(self.log_queue, world_stage)
+            return self._loggers[world_stage]
+
+    def get_level_logger(self, world: int, stage: int) -> SubprocessLogger:
+        """Convenience method to get logger for a specific world-stage."""
+        return self.get_logger(f"{world}-{stage}")
+
+
+# Global instance
+logger_manager = LoggerManager()

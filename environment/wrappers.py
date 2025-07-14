@@ -55,7 +55,7 @@ class CustomReward(Wrapper):
         reward -= time_penalty  # The more time left, the less penalty
 
         # Power-up state
-        if not info["status"] in ["small", "tall"]:
+        if not info["status"] in ["small", "talls"]:
             print('Power-up state:', info["status"])
 
         # if info["status"] == "tall": TODO: Why are we not seeing these states

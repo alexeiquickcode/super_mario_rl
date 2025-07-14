@@ -1,18 +1,9 @@
 import argparse
-import multiprocessing
-
-# Set multiprocessing start method to avoid fork issues
-try:
-    multiprocessing.set_start_method('spawn', force=True)
-except RuntimeError:
-    # Already set in `train_all_levels.py`
-    pass
 
 from config import TrainingConfig
-from ppo.trainer import Trainer
-from utils.logs import setup_logger
-
-setup_logger()
+from ppo.train.trainer import Trainer
+from utils import find_latest_checkpoint
+from utils.logs import logger_manager
 
 
 def main():
@@ -24,7 +15,7 @@ def main():
     parser.add_argument("--stage", type=int, default=1, help="Stage number (1-4)")
     parser.add_argument("--action_type", type=str, default="simple", choices=action_choices, help="Action space type")
     parser.add_argument("--num_envs", type=int, default=8, help="Number of parallel environments")
-    parser.add_argument("--num_episodes", type=int, default=1000, help="Number of training episodes")
+    parser.add_argument("--num_episodes", type=int, default=750, help="Number of training episodes")
 
     # Process args
     parser.add_argument("--render", action="store_true", help="Render the first environment during training")
@@ -32,6 +23,9 @@ def main():
     parser.add_argument("--gpu", type=int, default=None, help="GPU device ID to use")
 
     args = parser.parse_args()
+
+    # Logger
+    logger = logger_manager.get_logger(f"{args.world}-{args.stage}")
 
     config = TrainingConfig(
         world=args.world,
@@ -41,10 +35,20 @@ def main():
         lr=1e-4,
         gamma=0.9,
         num_local_steps=512,
-        batch_size=16
+        batch_size=16,
+        num_episodes=args.num_episodes
     )
 
     trainer = Trainer(config, render=args.render, use_multiprocessing=args.mp)
+
+    # Always try to auto-resume from the latest checkpoint
+    checkpoint_path = find_latest_checkpoint(args.world, args.stage, config.model_path)
+    if checkpoint_path:
+        logger.info(f"Found existing checkpoint, resuming from: {checkpoint_path}")
+        trainer.resume_from_checkpoint(checkpoint_path)
+    else:
+        logger.info(f"No checkpoint found in {config.model_path}, starting training from scratch")
+
     trainer.train()
 
 

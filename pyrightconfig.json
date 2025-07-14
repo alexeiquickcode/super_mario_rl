@@ -1,0 +1,10 @@
+{
+    "pythonVersion": "3.12",
+    "typeCheckingMode": "standard",
+    "reportMissingImports": false,
+    "reportMissingTypeStubs": false,
+    "reportOptionalSubscript": false,
+    "reportPrivateUsage": false,
+    "reportUnboundVariable": false,
+    "reportMissingModuleSource": true
+}
