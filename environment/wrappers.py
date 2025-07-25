@@ -55,7 +55,8 @@ class CustomReward(Wrapper):
         reward -= time_penalty  # The more time left, the less penalty
 
         # Power-up state
-        if not info["status"] in ["small", "talls"]:
+        if not info["status"] in ["small", "tall"]:
+            # NOTE: CHECKING IF WE ACTUALLY GET FIREBALLS AS PER THE MEMORY MAP
             print('Power-up state:', info["status"])
 
         # if info["status"] == "tall": TODO: Why are we not seeing these states
