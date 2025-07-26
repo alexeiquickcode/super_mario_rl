@@ -54,7 +54,10 @@ class TrainingConfig:
     model_path: str = field(init=False)
 
     def __post_init__(self, log_path_input, model_path_input):
-        base_path: str = os.getenv("GCS_BUCKET", "runs")
+        base_path: str | None = os.getenv("BUCKET_OR_LOCAL_PATH")
+        if base_path is None:
+            raise ValueError("BUCKET_OR_LOCAL_PATH is not set")
+
         world_stage: str = f"world_{self.world}_stage_{self.stage}"
 
         self.log_path = log_path_input or f"{base_path}/logs/{world_stage}"
