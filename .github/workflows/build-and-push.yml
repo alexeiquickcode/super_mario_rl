@@ -5,11 +5,9 @@ on:
     branches: [ main, staging ]
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   GAR_LOCATION: ${{ secrets.GAR_LOCATION }}
   GAR_REPOSITORY: ${{ secrets.GAR_REPOSITORY }}
-  IMAGE_NAME: super-mario-rl
-
+  
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -26,10 +24,12 @@ jobs:
         echo "Branch: ${{ github.ref }}"
         if [ "${{ github.ref }}" == "refs/heads/main" ]; then
           echo "ENVIRONMENT=prod" >> $GITHUB_ENV
+          echo "PROJECT_ID=${{ secrets.PROJECT_ID_PROD }}" >> $GITHUB_ENV
           echo "WIF_PROVIDER=${{ secrets.WIF_PROVIDER_PROD }}" >> $GITHUB_ENV
           echo "WIF_SERVICE_ACCOUNT=${{ secrets.WIF_SERVICE_ACCOUNT_PROD }}" >> $GITHUB_ENV
         elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
           echo "ENVIRONMENT=nonprod" >> $GITHUB_ENV
+          echo "PROJECT_ID=${{ secrets.PROJECT_ID_NONPROD }}" >> $GITHUB_ENV
           echo "WIF_PROVIDER=${{ secrets.WIF_PROVIDER_NONPROD }}" >> $GITHUB_ENV
           echo "WIF_SERVICE_ACCOUNT=${{ secrets.WIF_SERVICE_ACCOUNT_NONPROD }}" >> $GITHUB_ENV
         fi
@@ -54,4 +54,3 @@ jobs:
 
         echo "Pushing to artifact registry..."
         docker push $IMAGE_URL 
-
