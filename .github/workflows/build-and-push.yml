@@ -22,6 +22,8 @@ jobs:
     - name: Set env variables
       run: |
         echo "Branch: ${{ github.ref }}"
+        echo "IMAGE_NAME=super-mario-rl" >> $GITHUB_ENV
+        echo "IMAGE_TAG=latest" >> $GITHUB_ENV
         if [ "${{ github.ref }}" == "refs/heads/main" ]; then
           echo "ENVIRONMENT=prod" >> $GITHUB_ENV
           echo "PROJECT_ID=${{ secrets.PROJECT_ID_PROD }}" >> $GITHUB_ENV
@@ -33,7 +35,6 @@ jobs:
           echo "WIF_PROVIDER=${{ secrets.WIF_PROVIDER_NONPROD }}" >> $GITHUB_ENV
           echo "WIF_SERVICE_ACCOUNT=${{ secrets.WIF_SERVICE_ACCOUNT_NONPROD }}" >> $GITHUB_ENV
         fi
-        echo "IMAGE_TAG=latest" >> $GITHUB_ENV
 
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
