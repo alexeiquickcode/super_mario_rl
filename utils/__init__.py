@@ -86,15 +86,15 @@ def save_model_checkpoint(
 
 def load_model_checkpoint(
     filepath: str,
-    model: Module,
-    optimizer: Optimizer,
+    model: Module | None = None,
+    optimizer: Optimizer | None = None,
 ) -> tuple:
     """Load model checkpoint with training and model configurations.
 
     Args:
         filepath: Path to checkpoint file.
-        model: The model to load state into.
-        optimizer: The optimizer to load state into.
+        model: The model to load state into (optional).
+        optimizer: The optimizer to load state into (optional).
 
     Returns:
         Tuple of (training_config, model_config, metadata) from checkpoint.
@@ -104,8 +104,11 @@ def load_model_checkpoint(
     with cast(IO[bytes], fs.open(path, 'rb')) as f:
         checkpoint = torch.load(f, map_location=get_device(), weights_only=False)
 
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    if model is not None:
+        model.load_state_dict(checkpoint['model_state_dict'])
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
     metadata = checkpoint.get('metadata', {})
     return checkpoint['training_config'], checkpoint['model_config'], metadata
 

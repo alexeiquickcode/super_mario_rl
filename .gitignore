@@ -74,7 +74,7 @@ docs/_build/
 
 # Model artifacts
 model/
-models/
+models/*/  # Allow models directory but ignore world-specific subdirectories
 artifacts/
 
 .venv/

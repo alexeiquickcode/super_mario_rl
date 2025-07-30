@@ -136,6 +136,7 @@ class Trainer:
         # Handle rendering environment
         if self.render and self.render_env is not None:
             render_action = actions_np[0]  # Use action from 1st env
+            # print(f"Reward: {reward[0]}")
             try:
                 self.render_env.render()
                 render_state, _, render_done, _ = self.render_env.step(render_action)

@@ -15,7 +15,13 @@ def main():
     parser.add_argument("--stage", type=int, default=1, help="Stage number (1-4)")
     parser.add_argument("--action_type", type=str, default="simple", choices=action_choices, help="Action space type")
     parser.add_argument("--num_envs", type=int, default=8, help="Number of parallel environments")
-    parser.add_argument("--num_episodes", type=int, default=750, help="Number of training episodes")
+    parser.add_argument("--num_episodes", type=int, default=2000, help="Number of training episodes")
+
+    # Training args
+    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
+    parser.add_argument("--gamma", type=float, default=0.9, help="Discount factor")
+    parser.add_argument("--num_local_steps", type=int, default=1000, help="Number of local steps")
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
 
     # Process args
     parser.add_argument("--render", action="store_true", help="Render the first environment during training")
@@ -32,10 +38,10 @@ def main():
         stage=args.stage,
         action_type=args.action_type,
         num_envs=args.num_envs,
-        lr=1e-4,
-        gamma=0.9,
-        num_local_steps=512,
-        batch_size=16,
+        lr=args.lr,
+        gamma=args.gamma,
+        num_local_steps=args.num_local_steps,
+        batch_size=args.batch_size,
         num_episodes=args.num_episodes
     )
 

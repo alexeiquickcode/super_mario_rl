@@ -38,7 +38,7 @@ class TrainingConfig:
     epsilon: float = 0.2
 
     # Training structure
-    num_episodes: int = 750
+    num_episodes: int = 1000
     num_envs: int = 8
     num_local_steps: int = 512
     num_epochs: int = 4
@@ -59,7 +59,6 @@ class TrainingConfig:
             raise ValueError("BUCKET_OR_LOCAL_PATH is not set")
 
         world_stage: str = f"world_{self.world}_stage_{self.stage}"
-
         self.log_path = log_path_input or f"{base_path}/logs/{world_stage}"
         self.model_path = model_path_input or f"{base_path}/models/{world_stage}"
 
@@ -71,6 +70,7 @@ class ModelConfig:
     num_states: int = 4  # Frame stack size
     num_actions: int = 7  # Depends on action_type
 
-    # Architecture
-    conv_channels: tuple[int, ...] = (64, 128, 256, 512)
-    hidden_size: int = 1024
+    # Architecture - Simplified for faster training
+    conv_channels: tuple[int, ...] = (32, 64, 64)  # Removed 4th layer, reduced complexity
+    hidden_size: int = 256  # Reduced from 512 for faster computation
+

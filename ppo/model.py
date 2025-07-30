@@ -6,6 +6,8 @@ from config import ModelConfig
 
 class MarioPolicy(nn.Module):
     """CNN-based policy network for Mario Bros with actor-critic architecture.
+    
+    Optimized 3-layer CNN architecture for faster training.
 
     Architecture Diagram:
     ┌─────────────────────────────────┐
@@ -23,21 +25,16 @@ class MarioPolicy(nn.Module):
     └─────────────────┬───────────────┘
                       │
     ┌─────────────────▼───────────────┐
-    │  Conv3 → (N, 128, 11, 11)       │
+    │  Conv3 → (N, 64, 11, 11)        │
     │  ReLU                           │
     └─────────────────┬───────────────┘
                       │
     ┌─────────────────▼───────────────┐
-    │  Conv4 → (N, 256, 6, 6)         │
-    │  ReLU                           │
+    │  Flatten → (N, 7744)            │
     └─────────────────┬───────────────┘
                       │
     ┌─────────────────▼───────────────┐
-    │  Flatten → (N, 9216)            │
-    └─────────────────┬───────────────┘
-                      │
-    ┌─────────────────▼───────────────┐
-    │  Linear → (N, 512)              │
+    │  Linear → (N, 256)              │
     └─────────────────┬───────────────┘
                       │
          ┌────────────┴────────────┐
@@ -60,11 +57,10 @@ class MarioPolicy(nn.Module):
         self.bn2 = nn.BatchNorm2d(config.conv_channels[1])
         self.conv3 = nn.Conv2d(config.conv_channels[1], config.conv_channels[2], 3, stride=2, padding=1)
         self.bn3 = nn.BatchNorm2d(config.conv_channels[2])
-        self.conv4 = nn.Conv2d(config.conv_channels[2], config.conv_channels[3], 3, stride=2, padding=1)
-        self.bn4 = nn.BatchNorm2d(config.conv_channels[3])
 
-        # Calculate flattened size (assumes 84x84 input)
-        conv_out_size = config.conv_channels[3] * 6 * 6
+        # Calculate flattened size for 3-layer CNN (assumes 84x84 input)
+        # 84x84 -> 42x42 -> 21x21 -> 11x11
+        conv_out_size = config.conv_channels[2] * 11 * 11
         self.linear = nn.Linear(conv_out_size, config.hidden_size)
         self.dropout = nn.Dropout(0.2)  # Add dropout for regularization
 
@@ -89,7 +85,6 @@ class MarioPolicy(nn.Module):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
-        x = F.relu(self.bn4(self.conv4(x)))
 
         # Flatten and pass through MLP with dropout
         x = self.dropout(F.relu(self.linear(x.view(x.size(0), -1))))
