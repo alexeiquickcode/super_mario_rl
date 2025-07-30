@@ -56,5 +56,5 @@ RUN pip install --no-cache-dir pip-tools && \
 WORKDIR /app
 COPY . .
 
-RUN chmod +x train_all_levels.py
-CMD ["python", "train_all_levels.py"]
+RUN chmod +x train.py
+CMD ["python", "train.py"]
