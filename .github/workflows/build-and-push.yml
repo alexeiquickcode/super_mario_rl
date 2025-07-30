@@ -26,16 +26,20 @@ jobs:
         echo "Branch: ${{ github.ref }}"
         if [ "${{ github.ref }}" == "refs/heads/main" ]; then
           echo "ENVIRONMENT=prod" >> $GITHUB_ENV
+          echo "WIF_PROVIDER=${{ secrets.WIF_PROVIDER_PROD }}" >> $GITHUB_ENV
+          echo "WIF_SERVICE_ACCOUNT=${{ secrets.WIF_SERVICE_ACCOUNT_PROD }}" >> $GITHUB_ENV
         elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
           echo "ENVIRONMENT=nonprod" >> $GITHUB_ENV
+          echo "WIF_PROVIDER=${{ secrets.WIF_PROVIDER_NONPROD }}" >> $GITHUB_ENV
+          echo "WIF_SERVICE_ACCOUNT=${{ secrets.WIF_SERVICE_ACCOUNT_NONPROD }}" >> $GITHUB_ENV
         fi
         echo "IMAGE_TAG=latest" >> $GITHUB_ENV
 
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
-        workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-        service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+        workload_identity_provider: ${{ env.WIF_PROVIDER }}
+        service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
 
     - name: Configure Docker to use gcloud
       run: gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
