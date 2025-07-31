@@ -38,7 +38,6 @@ def main():
         stage=args.stage,
         action_type=args.action_type,
         num_envs=args.num_envs,
-        lr=args.lr,
         gamma=args.gamma,
         num_local_steps=args.num_local_steps,
         batch_size=args.batch_size,
