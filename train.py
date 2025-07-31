@@ -5,8 +5,6 @@ from ppo.train.trainer import Trainer
 from utils import find_latest_checkpoint
 from utils.logs import logger_manager
 
-# THIS IS A TEST
-
 
 def main():
     parser = argparse.ArgumentParser(description="Train PPO agent on Super Mario Bros")
