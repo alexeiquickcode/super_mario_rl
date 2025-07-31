@@ -28,11 +28,19 @@ jobs:
           echo "PROJECT_ID=${{ secrets.PROJECT_ID_PROD }}" >> $GITHUB_ENV
           echo "WIF_PROVIDER=${{ secrets.WIF_PROVIDER_PROD }}" >> $GITHUB_ENV
           echo "WIF_SERVICE_ACCOUNT=${{ secrets.WIF_SERVICE_ACCOUNT_PROD }}" >> $GITHUB_ENV
+          echo "DEBUG: Using prod secrets"
+          echo "DEBUG: PROJECT_ID=${{ secrets.PROJECT_ID_PROD }}"
+          echo "DEBUG: WIF_PROVIDER=${{ secrets.WIF_PROVIDER_PROD }}"
+          echo "DEBUG: WIF_SERVICE_ACCOUNT=${{ secrets.WIF_SERVICE_ACCOUNT_PROD }}"
         elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
           echo "ENVIRONMENT=nonprod" >> $GITHUB_ENV
           echo "PROJECT_ID=${{ secrets.PROJECT_ID_NONPROD }}" >> $GITHUB_ENV
           echo "WIF_PROVIDER=${{ secrets.WIF_PROVIDER_NONPROD }}" >> $GITHUB_ENV
           echo "WIF_SERVICE_ACCOUNT=${{ secrets.WIF_SERVICE_ACCOUNT_NONPROD }}" >> $GITHUB_ENV
+          echo "DEBUG: Using nonprod secrets"
+          echo "DEBUG: PROJECT_ID=${{ secrets.PROJECT_ID_NONPROD }}"
+          echo "DEBUG: WIF_PROVIDER=${{ secrets.WIF_PROVIDER_NONPROD }}"
+          echo "DEBUG: WIF_SERVICE_ACCOUNT=${{ secrets.WIF_SERVICE_ACCOUNT_NONPROD }}"
         fi
         echo "IMAGE_TAG=latest" >> $GITHUB_ENV
 
@@ -42,6 +50,15 @@ jobs:
         project_id: ${{ env.PROJECT_ID }}
         workload_identity_provider: ${{ env.WIF_PROVIDER }}
         service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+    
+    - name: Debug auth configuration
+      run: |
+        echo "DEBUG: Final env vars being used:"
+        echo "PROJECT_ID: ${{ env.PROJECT_ID }}"
+        echo "WIF_PROVIDER: ${{ env.WIF_PROVIDER }}"
+        echo "WIF_SERVICE_ACCOUNT: ${{ env.WIF_SERVICE_ACCOUNT }}"
+        echo "GAR_LOCATION: ${{ env.GAR_LOCATION }}"
+        echo "GAR_REPOSITORY: ${{ env.GAR_REPOSITORY }}"
 
     - name: Configure Docker to use gcloud
       run: gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
