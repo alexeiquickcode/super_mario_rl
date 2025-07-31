@@ -36,8 +36,8 @@ jobs:
       uses: google-github-actions/auth@v2
       with:
         project_id: ${{ env.PROJECT_ID }}
-        workload_identity_provider: ${{ env.WIF_PROVIDER }}
-        service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+        workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+        service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
     - name: Configure Docker to use gcloud
       run: gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
